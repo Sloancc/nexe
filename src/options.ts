@@ -1,9 +1,9 @@
 import * as parseArgv from 'minimist'
 import { NexeCompiler } from './compiler'
 import { isWindows, padRight } from './util'
-import { basename, extname, join, isAbsolute, relative, dirname } from 'path'
+import { basename, extname, join, isAbsolute, relative, dirname, resolve } from 'path'
 import { getTarget, NexeTarget } from './target'
-import { EOL } from 'os'
+import { EOL, homedir } from 'os'
 import * as c from 'chalk'
 
 export const version = '{{replace:0}}'
@@ -209,9 +209,11 @@ function findInput(input: string, cwd: string) {
 function normalizeOptionsAsync(input?: Partial<NexeOptions>): Promise<NexeOptions> {
   const options = Object.assign({}, defaults, input) as NexeOptions
   const opts = options as any
-
-  options.temp = options.temp || process.env.NEXE_TEMP || join(options.cwd, '.nexe')
-  options.input = findInput(options.input, options.cwd)
+  const cwd = (options.cwd = resolve(options.cwd))
+  options.temp = options.temp
+    ? resolve(cwd, options.temp)
+    : process.env.NEXE_TEMP || join(homedir(), '.nexe')
+  options.input = findInput(options.input, cwd)
   options.name = extractName(options)
   options.loglevel = extractLogLevel(options)
   options.flags = flatten(opts.flag, options.flags)
@@ -220,6 +222,10 @@ function normalizeOptionsAsync(input?: Partial<NexeOptions>): Promise<NexeOption
   options.configure = flatten(options.configure)
   options.resources = flatten(opts.resource, options.resources)
   options.rc = options.rc || extractCliMap(/^rc-.*/, options)
+  options.output = isWindows
+    ? `${(options.output || options.name).replace(/\.exe$/, '')}.exe`
+    : `${options.output || options.name}`
+  options.output = resolve(options.cwd, options.output)
 
   if (!options.targets.length) {
     options.targets.push(getTarget())
