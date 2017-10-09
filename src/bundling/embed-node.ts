@@ -24,25 +24,29 @@ export function embedDotNode(
   const settings = options[module]
   const moduleDir = hashName(contents)
   file.contents = `
-  var fs=require('fs');var path=require('path');var binding='${contents.toString(
-    'base64'
-  )}';function mkdirp(r,t){t=t||null,r=path.resolve(r);try{fs.mkdirSync(r),t=t||r}catch(c){if("ENOENT"===c.code)t=mkdirp(path.dirname(r),t),mkdirp(r,t);else{var i;try{i=fs.statSync(r)}catch(r){throw c}if(!i.isDirectory())throw c}}return t};`
+  var fs=require('fs');
+  var path=require('path');
+  function exists (path) { try { fs.accessSync(path); return true; } catch (e) { void e; return false }};
+  function mkdirp(r,t){t=t||null,r=path.resolve(r);try{fs.mkdirSync(r),t=t||r}catch(c){if("ENOENT"===c.code)t=mkdirp(path.dirname(r),t),mkdirp(r,t);else{var i;try{i=fs.statSync(r)}catch(r){throw c}if(!i.isDirectory())throw c}}return t};`
 
   if (!settings || settings === true) {
     file.contents += `
-      mkdirp('${moduleDir}');
       var bindingPath = path.join(process.cwd(), '${moduleDir}', '${bindingName}')
-      
-      require('fs').writeFileSync(bindingPath, Buffer.from(binding, 'base64'))
+      if (!exists(bindingPath)) {
+        mkdirp('${moduleDir}');
+        require('fs').writeFileSync(bindingPath, fs.readFileSync(path.join('./nexe/native', '${moduleDir}', '${bindingName}')))
+      }
       process.dlopen(module, bindingPath)
     `.trim()
-    return {}
+    return [
+      [`./nexe/native/${moduleDir}/${bindingName}`, contents]
+    ]
   }
 
   let depth = 0
   settings.additionalFiles.forEach(file => {
     let ownDepth = 0
-    file.split('/').forEach(x => x === '..' && ownDepth++)
+    path.normalize(file).split(path.sep).forEach(x => x === '..' && ownDepth++)
     depth = ownDepth > depth ? ownDepth : depth
   })
   let segments = [moduleDir]
@@ -50,13 +54,15 @@ export function embedDotNode(
     segments.push(hashName(moduleDir + depth))
   }
   segments.push(bindingName)
-
+  const files = ['./nexe/native/']
   file.contents += `
     var cwd = process.cwd()
     var bindingFileParts = ${JSON.stringify(segments)};
     var bindingFile = path.join.apply(path, [cwd].concat(bindingFileParts));
-    mkdirp(path.dirname(bindingFile));
-    fs.writeFileSync(bindingFile, Buffer.from(binding, 'base64'));
+    if (!exists(bindingFile)) {
+      mkdirp(path.dirname(bindingFile));
+      fs.writeFileSync(bindingFile, fs.readFileSync(path.join('./nexe/native', '${moduleDir}', '${bindingName}')));
+    }
     ${settings.additionalFiles.reduce((code, filename, i) => {
       const contents = fs.readFileSync(path.join(path.dirname(file.absPath), filename))
       return (code += `
